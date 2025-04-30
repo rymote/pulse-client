@@ -1,6 +1,7 @@
 {
     "name": "@rymote/pulse-client",
     "author": "Rymote <hi@rymote.io> (https://rymote.io/)",
+    "private": false,
     "funding": [
         {
             "type": "patreon",
