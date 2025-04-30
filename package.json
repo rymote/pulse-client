@@ -1,0 +1,31 @@
+{
+    "name": "@rymote/pulse-client",
+    "author": "Rymote <hi@rymote.io> (https://rymote.io/)",
+    "funding": [
+        {
+            "type": "patreon",
+            "url": "https://patreon.com/rymote"
+        },
+        {
+            "type": "opencollective",
+            "url": "https://opencollective.com/rymote"
+        }
+    ],
+    "license": "MIT",
+    "description": "",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc",
+        "format": "prettier --write ./"
+    },
+    "devDependencies": {
+        "@types/node": "^22.14.1",
+        "@types/ws": "^8",
+        "prettier": "^3.5.3",
+        "typescript": "^5.5.3"
+    },
+    "packageManager": "yarn@4.6.0",
+    "dependencies": {
+        "msgpackr": "^1.11.2"
+    }
+}
