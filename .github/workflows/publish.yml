@@ -19,6 +19,9 @@ jobs:
         id: extract_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Sync package.json version
         run: yarn version --new-version $VERSION --no-git-tag-version
 
