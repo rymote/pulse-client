@@ -20,38 +20,26 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
       - name: Sync package.json version
-        run: npm version $VERSION --no-git-tag-version
+        run: yarn version --new-version $VERSION --no-git-tag-version
 
-      - name: Setup Node (npmjs.org)
+      - name: Setup Node and Yarn Cache
         uses: actions/setup-node@v3
         with:
           node-version: '18'
-          registry-url: 'https://registry.npmjs.org'
+          cache: 'yarn'
 
-      - name: Authenticate to npmjs.org
-        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_ACCESS_TOKEN }}" >> ~/.npmrc
+      - name: Install deps
+        run: yarn install --frozen-lockfile
 
-      - name: Install & Build
-        run: |
-          npm ci
-          npm run build
+      - name: Build
+        run: yarn build
 
       - name: Publish to npmjs.org
-        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}
-
-      - name: Setup Node (GitHub Packages)
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          registry-url: 'https://npm.pkg.github.com'
-          always-auth: true
-
-      - name: Authenticate to GitHub Packages
-        run: echo "//npm.pkg.github.com/:_authToken=${{ github.token }}" >> ~/.npmrc
+        run: yarn publish --non-interactive --registry https://registry.npmjs.org
 
       - name: Publish to GitHub Packages
-        run: npm publish --registry https://npm.pkg.github.com
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: yarn publish --non-interactive --registry https://npm.pkg.github.com
