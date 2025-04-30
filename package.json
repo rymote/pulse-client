@@ -24,7 +24,6 @@
         "prettier": "^3.5.3",
         "typescript": "^5.5.3"
     },
-    "packageManager": "yarn@4.6.0",
     "dependencies": {
         "msgpackr": "^1.11.2"
     }

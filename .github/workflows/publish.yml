@@ -17,32 +17,43 @@ jobs:
 
       - name: Extract version from tag
         id: extract_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
-
-      - name: Enable Corepack
-        run: corepack enable
+        run: |
+          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
       - name: Sync package.json version
-        run: yarn version -i $VERSION
+        run: npm version $VERSION --no-git-tag-version
 
-      - name: Setup Node and Yarn Cache
+      - name: Setup Node for npmjs.org
         uses: actions/setup-node@v3
         with:
           node-version: '18'
-          cache: 'yarn'
+          registry-url: https://registry.npmjs.org
 
-      - name: Install deps
-        run: yarn install --frozen-lockfile
+      - name: Authenticate to npmjs.org
+        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_ACCESS_TOKEN }}" >> ~/.npmrc
 
+      - name: Install dependencies
+        run: npm ci
       - name: Build
-        run: yarn build
+        run: npm run build
 
       - name: Publish to npmjs.org
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}
-        run: yarn publish --non-interactive --registry https://registry.npmjs.org
+        run: npm publish
+
+      - name: Setup Node for GitHub Packages
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          registry-url: https://npm.pkg.github.com
+          always-auth: true
+          scope: '@rymote'
+
+      - name: Authenticate to GitHub Packages
+        run: echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
 
       - name: Publish to GitHub Packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: yarn publish --non-interactive --registry https://npm.pkg.github.com
+        run: npm publish --registry https://npm.pkg.github.com
