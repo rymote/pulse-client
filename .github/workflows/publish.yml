@@ -23,7 +23,7 @@ jobs:
         run: corepack enable
 
       - name: Sync package.json version
-        run: yarn version --new-version $VERSION --no-git-tag-version
+        run: yarn version -i $VERSION
 
       - name: Setup Node and Yarn Cache
         uses: actions/setup-node@v3
