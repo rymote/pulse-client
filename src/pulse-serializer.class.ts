@@ -39,9 +39,6 @@ export class PulseSerializer {
 
     public unpackEnvelope<T>(data: ArrayBuffer | Uint8Array): PulseEnvelope<T> {
         const buffer = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
-        console.log('data', buffer.toString());
-        console.log('Unpack hex:', u8ToHex(buffer as Uint8Array));
-
         const array = this.unpacker.unpack(buffer) as any[];
         const envelope = new PulseEnvelope<T>();
 

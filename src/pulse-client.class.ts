@@ -174,7 +174,6 @@ export class PulseClient implements _0x8f4d2f {
 
         const subscriberCallbacks = this.handlers.get(decodedEnvelope.handle) ?? [];
         for (const callback of subscriberCallbacks) {
-            console.log(decodedEnvelope.body);
             callback(decodedEnvelope.body);
         }
     }
