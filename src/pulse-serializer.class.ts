@@ -1,23 +1,25 @@
-import { Packr, Unpackr } from 'msgpackr';
-import { PulseEnvelope } from './pulse-envelope.class';
+import {Packr, Unpackr} from 'msgpackr';
+import {PulseEnvelope} from './pulse-envelope.class';
 
-function u8ToHex(u8arr: Uint8Array, { separator = ' ' } = {}) {
+function u8ToHex(u8arr: Uint8Array, {separator = ' '} = {}) {
     return Array.from(u8arr)
         .map((b) => b.toString(16).padStart(2, '0'))
         .join(separator);
 }
 
 export class PulseSerializer {
+    private static readonly PREFIX_LENGTH = 13;
+
     private readonly packer: Packr;
     private readonly unpacker: Unpackr;
 
     constructor() {
-        this.packer = new Packr({ useRecords: false });
-        this.unpacker = new Unpackr({ useRecords: false });
+        this.packer = new Packr({useRecords: false});
+        this.unpacker = new Unpackr({useRecords: false});
     }
 
     public packEnvelope<T>(envelope: PulseEnvelope<T>): Uint8Array {
-        const bodyPlain = envelope.body && typeof envelope.body === 'object' ? { ...(envelope.body as any) } : envelope.body;
+        const bodyPlain = envelope.body && typeof envelope.body === 'object' ? {...(envelope.body as any)} : envelope.body;
 
         const envelopeArray = [
             envelope.id ?? null,
@@ -33,13 +35,25 @@ export class PulseSerializer {
             envelope.endOfStream ?? false,
         ];
 
-        const packedData = this.packer.pack(envelopeArray);
-        return packedData;
+        const packed = this.packer.pack(envelopeArray);
+
+        const prefix = crypto.getRandomValues(new Uint8Array(PulseSerializer.PREFIX_LENGTH));
+        const frame = new Uint8Array(PulseSerializer.PREFIX_LENGTH + packed.length);
+        frame.set(prefix, 0);
+        frame.set(packed, PulseSerializer.PREFIX_LENGTH);
+
+        return frame;
     }
 
     public unpackEnvelope<T>(data: ArrayBuffer | Uint8Array): PulseEnvelope<T> {
         const buffer = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
-        const array = this.unpacker.unpack(buffer) as any[];
+        if (buffer.length <= PulseSerializer.PREFIX_LENGTH) {
+            throw new Error('Frame too short');
+        }
+
+        const payload = buffer.slice(PulseSerializer.PREFIX_LENGTH);
+
+        const array = this.unpacker.unpack(payload) as any[];
         const envelope = new PulseEnvelope<T>();
 
         envelope.id = array[0] ?? undefined;
