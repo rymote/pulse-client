@@ -4,9 +4,9 @@ import {PulseKind} from './pulse-kind.enum';
 import {PulseEnvelope} from './pulse-envelope.class';
 import {_0x5f1a3d, _0x8f4d2f} from './utils';
 
-const WORKBENCH_INTERNAL_SEND = Symbol('__WORKBENCH__INTERNAL__SEND__');
-const WORKBENCH_INTERNAL_ON = Symbol('__WORKBENCH__INTERNAL__ON__');
-const WORKBENCH_LISTENERS = Symbol('__WORKBENCH__LISTENERS__');
+const WORKBENCH_INTERNAL_SEND = Symbol.for('__WORKBENCH__INTERNAL__SEND__');
+const WORKBENCH_INTERNAL_ON = Symbol.for('__WORKBENCH__INTERNAL__ON__');
+const WORKBENCH_LISTENERS = Symbol.for('__WORKBENCH__LISTENERS__');
 
 export type PendingEntry<T = any> = {
     resolve: (data: T) => void;
@@ -29,6 +29,8 @@ export class PulseClient implements _0x8f4d2f {
         options?: PulseClientOptions,
     ) {
         this.options = options || {};
+
+        (this as any)[WORKBENCH_LISTENERS] = [];
     }
 
     async connect(): Promise<void> {
@@ -41,6 +43,27 @@ export class PulseClient implements _0x8f4d2f {
             this.webSocket!.onerror = (error) => reject(error);
             this.webSocket!.onclose = () => this.tryReconnect();
         });
+    }
+
+    public disconnect(code = 1000, reason = 'client disconnect'): void {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+
+        this.reconnectAttempts = 0;
+
+        if (this.webSocket && this.webSocket.readyState <= WebSocket.OPEN) {
+            this.webSocket.close(code, reason);
+        }
+
+        this.webSocket = null;
+
+        for (const [, entry] of this.pending) {
+            entry.reject(new Error('Client disconnected'));
+        }
+
+        this.pending.clear();
     }
 
     on(handle: string, callback: (data: any) => void): void {
@@ -155,7 +178,7 @@ export class PulseClient implements _0x8f4d2f {
         }
 
         const workbenchListeners: Array<(envelope: PulseEnvelope<any>) => void> =
-            (this as any)[WORKBENCH_LISTENERS];
+            (this as any)[WORKBENCH_LISTENERS] ?? [];
 
         for (const callback of workbenchListeners) callback(decodedEnvelope);
 
