@@ -1,8 +1,12 @@
 import pulseEnvelopeSerializer from './pulse-serializer.class';
-import { PulseClientOptions } from './pulse-client-options.interface';
-import { PulseKind } from './pulse-kind.enum';
-import { PulseEnvelope } from './pulse-envelope.class';
-import { _0x5f1a3d, _0x8f4d2f } from './utils';
+import {PulseClientOptions} from './pulse-client-options.interface';
+import {PulseKind} from './pulse-kind.enum';
+import {PulseEnvelope} from './pulse-envelope.class';
+import {_0x5f1a3d, _0x8f4d2f} from './utils';
+
+const WORKBENCH_INTERNAL_SEND = Symbol('__WORKBENCH__INTERNAL__SEND__');
+const WORKBENCH_INTERNAL_ON = Symbol('__WORKBENCH__INTERNAL__ON__');
+const WORKBENCH_LISTENERS = Symbol('__WORKBENCH__LISTENERS__');
 
 export type PendingEntry<T = any> = {
     resolve: (data: T) => void;
@@ -82,7 +86,7 @@ export class PulseClient implements _0x8f4d2f {
         envelope.clientCorrelationId = correlationId;
 
         return new Promise((resolve, reject) => {
-            this.pending.set(correlationId, { resolve, reject, onStream });
+            this.pending.set(correlationId, {resolve, reject, onStream});
             this.webSocket!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
 
             setTimeout(() => {
@@ -141,14 +145,19 @@ export class PulseClient implements _0x8f4d2f {
         }
 
         const rawBuffer = new Uint8Array(frameData);
-
         let decodedEnvelope: PulseEnvelope<any>;
+
         try {
             decodedEnvelope = pulseEnvelopeSerializer.unpackEnvelope(rawBuffer);
         } catch (error) {
             console.error('Failed to unpack incoming message as PulseEnvelope:', error, rawBuffer);
             return;
         }
+
+        const workbenchListeners: Array<(envelope: PulseEnvelope<any>) => void> =
+            (this as any)[WORKBENCH_LISTENERS];
+
+        for (const callback of workbenchListeners) callback(decodedEnvelope);
 
         const correlationId = decodedEnvelope.clientCorrelationId;
         const pendingEntry = correlationId ? this.pending.get(correlationId) : undefined;
@@ -193,3 +202,32 @@ export class PulseClient implements _0x8f4d2f {
         }, interval);
     }
 }
+
+(PulseClient.prototype as any)[WORKBENCH_INTERNAL_SEND] =
+    function <TPayload>(
+        this: PulseClient,
+        handle: string,
+        payload: TPayload,
+        version = 'v1',
+    ) {
+        const envelope = new PulseEnvelope<TPayload>();
+        envelope.handle    = handle;
+        envelope.body      = payload;
+        envelope.authToken = (this as any)['options']?.authToken ?? '';
+        envelope.kind      = PulseKind.EVENT;
+        envelope.version   = version;
+
+        (this as any)['webSocket']!.send(
+            pulseEnvelopeSerializer.packEnvelope(envelope),
+        );
+
+        return envelope;
+    };
+
+(PulseClient.prototype as any)[WORKBENCH_INTERNAL_ON] =
+    function (this: PulseClient, callback: (envelope: PulseEnvelope<any>) => void) {
+        const bucket: Array<(envelope: PulseEnvelope<any>) => void> =
+            (this as any)[WORKBENCH_LISTENERS];
+
+        bucket.push(callback);
+    };
