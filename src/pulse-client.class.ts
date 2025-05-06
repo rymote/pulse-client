@@ -4,7 +4,9 @@ import {PulseKind} from './pulse-kind.enum';
 import {PulseEnvelope} from './pulse-envelope.class';
 import {_0x5f1a3d, _0x8f4d2f} from './utils';
 
+const WORKBENCH_INTERNAL_INVOKE  = Symbol.for('__WORKBENCH__INTERNAL__INVOKE__');
 const WORKBENCH_INTERNAL_SEND = Symbol.for('__WORKBENCH__INTERNAL__SEND__');
+const WORKBENCH_INTERNAL_STREAM  = Symbol.for('__WORKBENCH__INTERNAL__STREAM__');
 const WORKBENCH_INTERNAL_ON = Symbol.for('__WORKBENCH__INTERNAL__ON__');
 const WORKBENCH_LISTENERS = Symbol.for('__WORKBENCH__LISTENERS__');
 
@@ -226,6 +228,29 @@ export class PulseClient implements _0x8f4d2f {
     }
 }
 
+(PulseClient.prototype as any)[WORKBENCH_INTERNAL_INVOKE] =
+    function <TRequest>(
+        this: PulseClient,
+        handle: string,
+        payload: TRequest,
+        version = 'v1',
+    ): PulseEnvelope<TRequest> {
+
+        const correlationId = _0x5f1a3d.call(this);
+
+        const req = new PulseEnvelope<TRequest>();
+        req.handle              = handle;
+        req.body                = payload;
+        req.authToken           = (this as any).options?.authToken ?? '';
+        req.kind                = PulseKind.RPC;
+        req.version             = version;
+        req.clientCorrelationId = correlationId;
+
+        (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(req));
+
+        return req;               //  ← only the request is returned
+    };
+
 (PulseClient.prototype as any)[WORKBENCH_INTERNAL_SEND] =
     function <TPayload>(
         this: PulseClient,
@@ -245,6 +270,61 @@ export class PulseClient implements _0x8f4d2f {
         );
 
         return envelope;
+    };
+
+(PulseClient.prototype as any)[WORKBENCH_INTERNAL_STREAM] =
+    async function <TChunk>(
+        this: PulseClient,
+        handle: string,
+        chunkGenerator: AsyncIterable<TChunk>,
+        version = 'v1',
+    ): Promise<{ correlationId: string; envelopes: PulseEnvelope<any>[] }> {
+
+        const correlationId = _0x5f1a3d.call(this);
+        const envelopes: PulseEnvelope<any>[] = [];
+
+        // initial envelope
+        const init = new PulseEnvelope<null>();
+        init.handle               = handle;
+        init.body                 = null;
+        init.authToken            = (this as any).options?.authToken ?? '';
+        init.kind                 = PulseKind.STREAM;
+        init.version              = version;
+        init.clientCorrelationId  = correlationId;
+
+        envelopes.push(init);
+        (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(init));
+
+        // every chunk
+        for await (const chunk of chunkGenerator) {
+            const chunkEnv = new PulseEnvelope<TChunk>();
+            chunkEnv.handle              = handle;
+            chunkEnv.body                = chunk;
+            chunkEnv.authToken           = (this as any).options?.authToken ?? '';
+            chunkEnv.kind                = PulseKind.STREAM;
+            chunkEnv.version             = version;
+            chunkEnv.clientCorrelationId = correlationId;
+            chunkEnv.isStreamChunk       = true;
+            chunkEnv.endOfStream         = false;
+
+            envelopes.push(chunkEnv);
+            (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(chunkEnv));
+        }
+
+        const end = new PulseEnvelope<null>();
+        end.handle               = handle;
+        end.body                 = null;
+        end.authToken            = (this as any).options?.authToken ?? '';
+        end.kind                 = PulseKind.STREAM;
+        end.version              = version;
+        end.clientCorrelationId  = correlationId;
+        end.isStreamChunk        = true;
+        end.endOfStream          = true;
+
+        envelopes.push(end);
+        (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(end));
+
+        return { correlationId, envelopes };
     };
 
 (PulseClient.prototype as any)[WORKBENCH_INTERNAL_ON] =
