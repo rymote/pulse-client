@@ -1,7 +1,7 @@
-import {Packr, Unpackr} from 'msgpackr';
-import {PulseEnvelope} from './pulse-envelope.class';
+import { Packr, Unpackr } from 'msgpackr';
+import { PulseEnvelope } from './pulse-envelope.class';
 
-function u8ToHex(u8arr: Uint8Array, {separator = ' '} = {}) {
+function u8ToHex(u8arr: Uint8Array, { separator = ' ' } = {}) {
     return Array.from(u8arr)
         .map((b) => b.toString(16).padStart(2, '0'))
         .join(separator);
@@ -14,12 +14,12 @@ export class PulseSerializer {
     private readonly unpacker: Unpackr;
 
     constructor() {
-        this.packer = new Packr({useRecords: false});
-        this.unpacker = new Unpackr({useRecords: false});
+        this.packer = new Packr({ useRecords: false });
+        this.unpacker = new Unpackr({ useRecords: false });
     }
 
     public packEnvelope<T>(envelope: PulseEnvelope<T>): Uint8Array {
-        const bodyPlain = envelope.body && typeof envelope.body === 'object' ? {...(envelope.body as any)} : envelope.body;
+        const bodyPlain = envelope.body && typeof envelope.body === 'object' ? { ...(envelope.body as any) } : envelope.body;
 
         const envelopeArray = [
             envelope.id ?? null,
