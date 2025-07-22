@@ -3,4 +3,5 @@ export interface PulseClientOptions {
     maxReconnectAttempts?: number;
     authToken?: string;
     requestTimeoutMs?: number;
+    autoReconnect?: boolean;
 }
