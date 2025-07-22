@@ -95,22 +95,22 @@ export class PulseClient {
         this._pending.clear();
     }
 
-    private onConnect(callback: () => void): void {
+    public onConnect(callback: () => void): void {
         this._connectHandlers.push(callback);
     }
 
-    private offConnect(callback: () => void): void {
+    public offConnect(callback: () => void): void {
         const index = this._connectHandlers.indexOf(callback);
         if (index !== -1) {
             this._connectHandlers.splice(index, 1);
         }
     }
 
-    private onDisconnect(callback: () => void): void {
+    public onDisconnect(callback: () => void): void {
         this._disconnectHandlers.push(callback);
     }
 
-    private offDisconnect(callback: () => void): void {
+    public offDisconnect(callback: () => void): void {
         const index = this._disconnectHandlers.indexOf(callback);
         if (index !== -1) {
             this._disconnectHandlers.splice(index, 1);
