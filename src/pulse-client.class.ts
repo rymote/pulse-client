@@ -4,6 +4,7 @@ import { PulseKind } from './pulse-kind.enum';
 import { PulseEnvelope } from './pulse-envelope.class';
 
 import { EventListener } from './event-listener.type';
+import {createWebSocket} from "./websocket.wrapper";
 
 const WORKBENCH_INTERNAL_INVOKE = Symbol.for('__WORKBENCH__INTERNAL__INVOKE__');
 const WORKBENCH_INTERNAL_SEND = Symbol.for('__WORKBENCH__INTERNAL__SEND__');
@@ -48,7 +49,7 @@ export class PulseClient {
     }
 
     async connect(): Promise<void> {
-        this._webSocket = new WebSocket(this.url);
+        this._webSocket = createWebSocket(this.url, this._options.queryParameters);
         this._webSocket.binaryType = 'arraybuffer';
 
         return new Promise((resolve, reject) => {
