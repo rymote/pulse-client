@@ -301,9 +301,9 @@ export class PulseClient {
 
         const params: { [key: string]: string } = {};
 
-        for (let i = 0; i < patternParts.length; i++) {
-            const patternPart = patternParts[i];
-            const handlePart = handleParts[i];
+        for (let index = 0; index < patternParts.length; index++) {
+            const patternPart = patternParts[index];
+            const handlePart = handleParts[index];
 
             if (patternPart.startsWith('{') && patternPart.endsWith('}')) {
                 const paramName = patternPart.slice(1, -1);
@@ -333,7 +333,7 @@ export class PulseClient {
     requestEnvelope.version = version;
     requestEnvelope.clientCorrelationId = correlationId;
 
-    (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(requestEnvelope));
+    (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(requestEnvelope));
 
     return requestEnvelope;
 };
@@ -351,7 +351,7 @@ export class PulseClient {
     envelope.kind = PulseKind.EVENT;
     envelope.version = version;
 
-    (this as any)['webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
+    (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
 
     return envelope;
 };
@@ -374,7 +374,7 @@ export class PulseClient {
     initialEnvelope.clientCorrelationId = correlationId;
 
     envelopes.push(initialEnvelope);
-    (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(initialEnvelope));
+    (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(initialEnvelope));
 
     for await (const chunk of chunkGenerator) {
         const chunkEnvelope = new PulseEnvelope<TChunk>();
@@ -388,7 +388,7 @@ export class PulseClient {
         chunkEnvelope.endOfStream = false;
 
         envelopes.push(chunkEnvelope);
-        (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(chunkEnvelope));
+        (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(chunkEnvelope));
     }
 
     const endEnvelope = new PulseEnvelope<null>();
@@ -402,7 +402,7 @@ export class PulseClient {
     endEnvelope.endOfStream = true;
 
     envelopes.push(endEnvelope);
-    (this as any).webSocket!.send(pulseEnvelopeSerializer.packEnvelope(endEnvelope));
+    (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(endEnvelope));
 
     return { correlationId, envelopes };
 };
