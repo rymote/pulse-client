@@ -31,8 +31,6 @@ export class PulseSerializer {
             envelope.clientCorrelationId ?? null,
             envelope.status ?? null,
             envelope.error ?? null,
-            envelope.isStreamChunk ?? false,
-            envelope.endOfStream ?? false,
         ];
 
         const packed = this.packer.pack(envelopeArray);
@@ -65,8 +63,6 @@ export class PulseSerializer {
         envelope.clientCorrelationId = array[6] ?? undefined;
         envelope.status = array[7] ?? undefined;
         envelope.error = array[8] ?? undefined;
-        envelope.isStreamChunk = array[9] ?? false;
-        envelope.endOfStream = array[10] ?? false;
 
         return envelope;
     }

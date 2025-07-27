@@ -4,18 +4,16 @@ import { PulseKind } from './pulse-kind.enum';
 import { PulseEnvelope } from './pulse-envelope.class';
 
 import { EventListener } from './event-listener.type';
-import {createWebSocket} from "./websocket.wrapper";
+import { createWebSocket } from "./websocket.wrapper";
 
 const WORKBENCH_INTERNAL_INVOKE = Symbol.for('__WORKBENCH__INTERNAL__INVOKE__');
 const WORKBENCH_INTERNAL_SEND = Symbol.for('__WORKBENCH__INTERNAL__SEND__');
-const WORKBENCH_INTERNAL_STREAM = Symbol.for('__WORKBENCH__INTERNAL__STREAM__');
 const WORKBENCH_INTERNAL_ON = Symbol.for('__WORKBENCH__INTERNAL__ON__');
 const WORKBENCH_LISTENERS = Symbol.for('__WORKBENCH__LISTENERS__');
 
 export type PendingEntry<T = any> = {
     resolve: (data: T) => void;
     reject: (error: any) => void;
-    onStream?: (chunk: T) => void;
 };
 
 export class PulseClient {
@@ -157,11 +155,10 @@ export class PulseClient {
     public invoke<TRequest, TResponse>(
         handle: string,
         payload: TRequest,
-        onStream?: (chunk: TResponse) => void,
         version = 'v1',
     ): Promise<TResponse | void> {
         const correlationId = this._0x5f1a3d();
-        const kind: PulseKind = onStream ? PulseKind.STREAM : PulseKind.RPC;
+        const kind: PulseKind = PulseKind.RPC;
 
         const envelope = new PulseEnvelope<TRequest>();
         envelope.handle = handle;
@@ -172,7 +169,7 @@ export class PulseClient {
         envelope.clientCorrelationId = correlationId;
 
         return new Promise((resolve, reject) => {
-            this._pending.set(correlationId, { resolve, reject, onStream });
+            this._pending.set(correlationId, { resolve, reject });
             this._webSocket!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
 
             setTimeout(() => {
@@ -182,46 +179,6 @@ export class PulseClient {
                 }
             }, this._options?.requestTimeoutMs ?? 15000);
         });
-    }
-
-    public async stream<TChunk>(handle: string, chunkGenerator: AsyncIterable<TChunk>, version = 'v1'): Promise<void> {
-        const correlationId = this._0x5f1a3d();
-
-        const initialEnvelope = new PulseEnvelope<null>();
-        initialEnvelope.handle = handle;
-        initialEnvelope.body = null;
-        initialEnvelope.authToken = this._options?.authToken ?? '';
-        initialEnvelope.kind = PulseKind.STREAM;
-        initialEnvelope.version = version;
-        initialEnvelope.clientCorrelationId = correlationId;
-
-        this._webSocket!.send(pulseEnvelopeSerializer.packEnvelope(initialEnvelope));
-
-        for await (const chunk of chunkGenerator) {
-            const chunkEnvelope = new PulseEnvelope<TChunk>();
-            chunkEnvelope.handle = handle;
-            chunkEnvelope.body = chunk;
-            chunkEnvelope.authToken = this._options?.authToken ?? '';
-            chunkEnvelope.kind = PulseKind.STREAM;
-            chunkEnvelope.version = version;
-            chunkEnvelope.clientCorrelationId = correlationId;
-            chunkEnvelope.isStreamChunk = true;
-            chunkEnvelope.endOfStream = false;
-
-            this._webSocket!.send(pulseEnvelopeSerializer.packEnvelope(chunkEnvelope));
-        }
-
-        const endOfStreamEnvelope = new PulseEnvelope<null>();
-        endOfStreamEnvelope.handle = handle;
-        endOfStreamEnvelope.body = null;
-        endOfStreamEnvelope.authToken = this._options?.authToken ?? '';
-        endOfStreamEnvelope.kind = PulseKind.STREAM;
-        endOfStreamEnvelope.version = version;
-        endOfStreamEnvelope.clientCorrelationId = correlationId;
-        endOfStreamEnvelope.isStreamChunk = true;
-        endOfStreamEnvelope.endOfStream = true;
-
-        this._webSocket!.send(pulseEnvelopeSerializer.packEnvelope(endOfStreamEnvelope));
     }
 
     private handleMessage(frameData: ArrayBuffer | string): void {
@@ -246,19 +203,6 @@ export class PulseClient {
 
         const correlationId = decodedEnvelope.clientCorrelationId;
         const pendingEntry = correlationId ? this._pending.get(correlationId) : undefined;
-
-        if (pendingEntry && decodedEnvelope.kind === PulseKind.STREAM && decodedEnvelope.isStreamChunk) {
-            if (pendingEntry.onStream) {
-                pendingEntry.onStream(decodedEnvelope.body);
-            }
-
-            if (decodedEnvelope.endOfStream) {
-                pendingEntry.resolve(undefined);
-                this._pending.delete(correlationId!);
-            }
-
-            return;
-        }
 
         if (pendingEntry) {
             pendingEntry.resolve(decodedEnvelope.body);
@@ -354,57 +298,6 @@ export class PulseClient {
     (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
 
     return envelope;
-};
-
-(PulseClient.prototype as any)[WORKBENCH_INTERNAL_STREAM] = async function <TChunk>(
-    this: PulseClient,
-    handle: string,
-    chunkGenerator: AsyncIterable<TChunk>,
-    version = 'v1',
-): Promise<{ correlationId: string; envelopes: PulseEnvelope<any>[] }> {
-    const correlationId = this._0x5f1a3d();
-    const envelopes: PulseEnvelope<any>[] = [];
-
-    const initialEnvelope = new PulseEnvelope<null>();
-    initialEnvelope.handle = handle;
-    initialEnvelope.body = null;
-    initialEnvelope.authToken = (this as any).options?.authToken ?? '';
-    initialEnvelope.kind = PulseKind.STREAM;
-    initialEnvelope.version = version;
-    initialEnvelope.clientCorrelationId = correlationId;
-
-    envelopes.push(initialEnvelope);
-    (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(initialEnvelope));
-
-    for await (const chunk of chunkGenerator) {
-        const chunkEnvelope = new PulseEnvelope<TChunk>();
-        chunkEnvelope.handle = handle;
-        chunkEnvelope.body = chunk;
-        chunkEnvelope.authToken = (this as any).options?.authToken ?? '';
-        chunkEnvelope.kind = PulseKind.STREAM;
-        chunkEnvelope.version = version;
-        chunkEnvelope.clientCorrelationId = correlationId;
-        chunkEnvelope.isStreamChunk = true;
-        chunkEnvelope.endOfStream = false;
-
-        envelopes.push(chunkEnvelope);
-        (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(chunkEnvelope));
-    }
-
-    const endEnvelope = new PulseEnvelope<null>();
-    endEnvelope.handle = handle;
-    endEnvelope.body = null;
-    endEnvelope.authToken = (this as any).options?.authToken ?? '';
-    endEnvelope.kind = PulseKind.STREAM;
-    endEnvelope.version = version;
-    endEnvelope.clientCorrelationId = correlationId;
-    endEnvelope.isStreamChunk = true;
-    endEnvelope.endOfStream = true;
-
-    envelopes.push(endEnvelope);
-    (this as any)['_webSocket']!.send(pulseEnvelopeSerializer.packEnvelope(endEnvelope));
-
-    return { correlationId, envelopes };
 };
 
 (PulseClient.prototype as any)[WORKBENCH_INTERNAL_ON] = function (this: PulseClient, callback: (envelope: PulseEnvelope<any>) => void) {

@@ -11,6 +11,4 @@ export class PulseEnvelope<T> {
     clientCorrelationId?: string;
     status?: PulseStatus;
     error?: string;
-    isStreamChunk?: boolean;
-    endOfStream?: boolean;
 }
