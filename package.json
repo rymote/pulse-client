@@ -1,5 +1,6 @@
 {
     "name": "@rymote/pulse-client",
+    "version": "2.0.0",
     "author": "Rymote <hi@rymote.io> (https://rymote.io/)",
     "private": false,
     "funding": [
@@ -13,12 +14,28 @@
         }
     ],
     "license": "MIT",
-    "description": "",
+    "description": "TypeScript client library for Rymote.Pulse with real-time communication (RTC) support",
+    "type": "module",
     "main": "dist/index.js",
+    "module": "./dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist/**/*"
+    ],
     "scripts": {
         "build": "tsc",
-        "format": "prettier --write ./"
+        "format": "prettier --write ./",
+        "example:rtc": "tsc && node dist/examples/rtc-example.js",
+        "dev": "tsc --watch",
+        "prepare": "npm run build"
     },
+    "keywords": [
+        "rymote",
+        "pulse",
+        "websocket",
+        "realtime",
+        "typescript"
+    ],
     "devDependencies": {
         "@types/node": "^22.14.1",
         "@types/ws": "^8",

@@ -1,12 +1,25 @@
-import {PulseQueryParameters} from "./pulse-query-parameters.type";
+import { PulseQueryParameters } from './pulse-query-parameters.type';
+
+let NodeWebSocket: any = null;
+
+if (typeof window === 'undefined') {
+    import('ws')
+        .then((mod) => {
+            NodeWebSocket = mod.WebSocket;
+        })
+        .catch(() => {});
+}
 
 export function getWebSocketConstructor(): typeof WebSocket {
     if (typeof window === 'undefined') {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        return require('ws');
-    } else {
-        return WebSocket;
+        if (!NodeWebSocket) {
+            throw new Error('ws not loaded yet');
+        }
+
+        return NodeWebSocket;
     }
+
+    return WebSocket;
 }
 
 export function createWebSocket(url: string | URL, queryParameters?: PulseQueryParameters): WebSocket {

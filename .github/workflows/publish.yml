@@ -1,59 +1,59 @@
 name: Publish Package to NPM and GitHub
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+    push:
+        tags:
+            - 'v*.*.*'
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+    publish:
+        runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
 
-      - name: Extract version from tag
-        id: extract_version
-        run: |
-          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+            - name: Extract version from tag
+              id: extract_version
+              run: |
+                  echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
-      - name: Sync package.json version
-        run: npm version $VERSION --no-git-tag-version
+            - name: Sync package.json version
+              run: npm version $VERSION --no-git-tag-version
 
-      - name: Setup Node for npmjs.org
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          registry-url: https://registry.npmjs.org
+            - name: Setup Node for npmjs.org
+              uses: actions/setup-node@v3
+              with:
+                  node-version: '18'
+                  registry-url: https://registry.npmjs.org
 
-      - name: Authenticate to npmjs.org
-        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_ACCESS_TOKEN }}" >> ~/.npmrc
+            - name: Authenticate to npmjs.org
+              run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_ACCESS_TOKEN }}" >> ~/.npmrc
 
-      - name: Install dependencies
-        run: npm ci
-      - name: Build
-        run: npm run build
+            - name: Install dependencies
+              run: npm ci
+            - name: Build
+              run: npm run build
 
-      - name: Publish to npmjs.org
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}
-        run: npm publish --access public
+            - name: Publish to npmjs.org
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}
+              run: npm publish --access public
 
-      - name: Setup Node for GitHub Packages
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          registry-url: https://npm.pkg.github.com
-          always-auth: true
-          scope: '@rymote'
+            - name: Setup Node for GitHub Packages
+              uses: actions/setup-node@v3
+              with:
+                  node-version: '18'
+                  registry-url: https://npm.pkg.github.com
+                  always-auth: true
+                  scope: '@rymote'
 
-      - name: Authenticate to GitHub Packages
-        run: echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
+            - name: Authenticate to GitHub Packages
+              run: echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> ~/.npmrc
 
-      - name: Publish to GitHub Packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish --registry https://npm.pkg.github.com --access public
+            - name: Publish to GitHub Packages
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: npm publish --registry https://npm.pkg.github.com --access public

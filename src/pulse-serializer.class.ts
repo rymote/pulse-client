@@ -6,10 +6,8 @@ export class PulseSerializer {
     private static readonly NONCE_LENGTH = 12;
     private static readonly TAG_LENGTH = 16;
     private static readonly KEY_BYTES = new Uint8Array([
-        0xf3, 0xb4, 0xd8, 0x9e, 0x3a, 0x6c, 0x2b, 0x75,
-        0xa1, 0xee, 0x4c, 0x6d, 0x90, 0xf8, 0xa2, 0x13,
-        0x4d, 0xd8, 0x9e, 0x3a, 0xa1, 0xbc, 0x67, 0x42,
-        0x3f, 0xf4, 0xb6, 0x21, 0x84, 0xce, 0x93, 0xde
+        0xf3, 0xb4, 0xd8, 0x9e, 0x3a, 0x6c, 0x2b, 0x75, 0xa1, 0xee, 0x4c, 0x6d, 0x90, 0xf8, 0xa2, 0x13, 0x4d, 0xd8, 0x9e, 0x3a, 0xa1, 0xbc,
+        0x67, 0x42, 0x3f, 0xf4, 0xb6, 0x21, 0x84, 0xce, 0x93, 0xde,
     ]);
 
     private readonly packer: Packr;
@@ -23,9 +21,7 @@ export class PulseSerializer {
     }
 
     public packEnvelope<T>(envelope: PulseEnvelope<T>): Uint8Array {
-        const bodyPlain = envelope.body && typeof envelope.body === 'object'
-            ? { ...(envelope.body as any) }
-            : envelope.body;
+        const bodyPlain = envelope.body && typeof envelope.body === 'object' ? { ...(envelope.body as any) } : envelope.body;
 
         const envelopeArray = [
             envelope.id ?? null,
@@ -36,7 +32,7 @@ export class PulseSerializer {
             envelope.version,
             envelope.clientCorrelationId ?? null,
             envelope.status ?? null,
-            envelope.error ?? null
+            envelope.error ?? null,
         ];
 
         const plaintext = this.packer.pack(envelopeArray);
