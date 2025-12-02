@@ -1,4 +1,4 @@
-import { PulseQueryParameters } from './pulse-query-parameters.type';
+import { PulseQueryParameters } from './pulse-query-parameters.type.js';
 
 export interface PulseClientOptions {
     reconnectIntervalMs?: number;

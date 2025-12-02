@@ -1,5 +1,5 @@
-import { PulseKind } from './pulse-kind.enum';
-import { PulseStatus } from './pulse-status.enum';
+import { PulseKind } from './pulse-kind.enum.js';
+import { PulseStatus } from './pulse-status.enum.js';
 
 export class PulseEnvelope<T> {
     id!: string;

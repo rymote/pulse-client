@@ -1,6 +1,6 @@
 import { Packr, Unpackr } from 'msgpackr';
 import { ChaCha20Poly1305 } from '@stablelib/chacha20poly1305';
-import { PulseEnvelope } from './pulse-envelope.class';
+import { PulseEnvelope } from './pulse-envelope.class.js';
 
 export class PulseSerializer {
     private static readonly NONCE_LENGTH = 12;

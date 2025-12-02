@@ -1,10 +1,10 @@
-import pulseEnvelopeSerializer from './pulse-serializer.class';
-import { PulseClientOptions } from './pulse-client-options.interface';
-import { PulseKind } from './pulse-kind.enum';
-import { PulseEnvelope } from './pulse-envelope.class';
+import pulseEnvelopeSerializer from './pulse-serializer.class.js';
+import { PulseClientOptions } from './pulse-client-options.interface.js';
+import { PulseKind } from './pulse-kind.enum.js';
+import { PulseEnvelope } from './pulse-envelope.class.js';
 
-import { EventListener } from './event-listener.type';
-import { createWebSocket } from './websocket.wrapper';
+import { EventListener } from './event-listener.type.js';
+import { createWebSocket } from './websocket.wrapper.js';
 
 const WORKBENCH_INTERNAL_INVOKE = Symbol.for('__WORKBENCH__INTERNAL__INVOKE__');
 const WORKBENCH_INTERNAL_SEND = Symbol.for('__WORKBENCH__INTERNAL__SEND__');
