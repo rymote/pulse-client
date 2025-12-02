@@ -14,18 +14,27 @@
         }
     ],
     "license": "MIT",
-    "description": "TypeScript client library for Rymote.Pulse with real-time communication (RTC) support",
+    "description": "TypeScript client library for Rymote.Pulse",
+
     "type": "module",
-    "main": "dist/index.js",
+
+    "main": "./dist/index.js",
     "module": "./dist/index.js",
-    "types": "dist/index.d.ts",
+    "types": "./dist/index.d.ts",
+
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+
     "files": [
         "dist/**/*"
     ],
     "scripts": {
         "build": "tsc",
         "format": "prettier --write ./",
-        "example:rtc": "tsc && node dist/examples/rtc-example.js",
         "dev": "tsc --watch",
         "prepare": "npm run build"
     },
