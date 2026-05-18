@@ -13,7 +13,7 @@
             "url": "https://opencollective.com/rymote"
         }
     ],
-    "license": "MIT",
+    "license": "BSD-3-Clause",
     "description": "TypeScript client library for Rymote.Pulse",
 
     "type": "module",
