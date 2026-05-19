@@ -23,6 +23,8 @@ export class PulseSerializer {
     public packEnvelope<T>(envelope: PulseEnvelope<T>): Uint8Array {
         const bodyPlain = envelope.body && typeof envelope.body === 'object' ? { ...(envelope.body as any) } : envelope.body;
 
+        // v3 envelope layout: [id, handle, body, authToken, kind, version, status, error]
+        // ClientCorrelationId (former key 6) is removed; status moves to key 6, error to key 7.
         const envelopeArray = [
             envelope.id ?? null,
             envelope.handle,
@@ -30,7 +32,6 @@ export class PulseSerializer {
             envelope.authToken ?? null,
             envelope.kind,
             envelope.version,
-            envelope.clientCorrelationId ?? null,
             envelope.status ?? null,
             envelope.error ?? null,
         ];
@@ -71,9 +72,8 @@ export class PulseSerializer {
         envelope.authToken = array[3] ?? undefined;
         envelope.kind = array[4];
         envelope.version = array[5];
-        envelope.clientCorrelationId = array[6] ?? undefined;
-        envelope.status = array[7] ?? undefined;
-        envelope.error = array[8] ?? undefined;
+        envelope.status = array[6] ?? undefined;
+        envelope.error = array[7] ?? undefined;
 
         return envelope;
     }

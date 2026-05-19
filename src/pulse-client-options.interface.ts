@@ -1,10 +1,15 @@
+import { IPulseClientTransport } from './transport/pulse-client-transport.interface.js';
 import { PulseQueryParameters } from './pulse-query-parameters.type.js';
 
 export interface PulseClientOptions {
-    reconnectIntervalMs?: number;
-    maxReconnectAttempts?: number;
+    endpoint: string | URL;
+    transports: IPulseClientTransport[];
     authToken?: string;
-    requestTimeoutMs?: number;
-    autoReconnect?: boolean;
     queryParameters?: PulseQueryParameters;
+    autoReconnect?: boolean;
+    reconnectInitialDelayMs?: number;
+    reconnectMaxDelayMs?: number;
+    maxReconnectAttempts?: number;
+    connectTimeoutMs?: number;
+    requestTimeoutMs?: number;
 }

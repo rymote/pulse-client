@@ -8,7 +8,6 @@ export class PulseEnvelope<T> {
     authToken?: string;
     kind!: PulseKind;
     version!: string;
-    clientCorrelationId?: string;
     status?: PulseStatus;
     error?: string;
 }

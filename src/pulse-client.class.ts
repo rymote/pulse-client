@@ -1,291 +1,344 @@
-import pulseEnvelopeSerializer from './pulse-serializer.class.js';
+import pulseSerializer from './pulse-serializer.class.js';
+import { IPulseClientTransport } from './transport/pulse-client-transport.interface.js';
+import { IPulseSession } from './transport/pulse-session.interface.js';
+import { PulseClientEventHandler } from './pulse-client-event-handler.type.js';
+import { PulseClientEventHandlerRegistry } from './pulse-client-event-handler-registry.class.js';
 import { PulseClientOptions } from './pulse-client-options.interface.js';
-import { PulseKind } from './pulse-kind.enum.js';
+import { PulseClientSessionPipeline } from './pulse-client-session-pipeline.class.js';
+import { PulseConnectError } from './pulse-connect-error.class.js';
 import { PulseEnvelope } from './pulse-envelope.class.js';
+import { PulseKind } from './pulse-kind.enum.js';
+import { PulseQueryParameters } from './pulse-query-parameters.type.js';
+import { PulseStatus } from './pulse-status.enum.js';
+import { PulseStreamDirection } from './transport/pulse-stream-direction.enum.js';
+import { PulseStreamResetError } from './transport/pulse-stream-reset-error.class.js';
 
-import { EventListener } from './event-listener.type.js';
-import { createWebSocket } from './websocket.wrapper.js';
-
-const WORKBENCH_INTERNAL_INVOKE = Symbol.for('__WORKBENCH__INTERNAL__INVOKE__');
-const WORKBENCH_INTERNAL_SEND = Symbol.for('__WORKBENCH__INTERNAL__SEND__');
-const WORKBENCH_INTERNAL_ON = Symbol.for('__WORKBENCH__INTERNAL__ON__');
-const WORKBENCH_LISTENERS = Symbol.for('__WORKBENCH__LISTENERS__');
-
-export type PendingEntry<T = any> = {
-    resolve: (data: T) => void;
-    reject: (error: any) => void;
-};
+export type DeliveryMode = 'reliable' | 'datagram';
 
 export class PulseClient {
-    public messageSequenceNumber = 0;
+    private readonly options: PulseClientOptions;
+    private readonly eventHandlerRegistry = new PulseClientEventHandlerRegistry();
+    private readonly onConnectHandlers: Array<() => void> = [];
+    private readonly onDisconnectHandlers: Array<() => void> = [];
 
-    private _webSocketConnection: WebSocket | null = null;
-    private _pendingRequests = new Map<string, PendingEntry>();
-    private _eventHandlers = new Map<string, Array<EventListener>>();
-    private _clientOptions: PulseClientOptions;
-    private _reconnectAttempts: number = 0;
-    private _reconnectTimer: NodeJS.Timeout | null = null;
-    private _connected: boolean = false;
-    private _onConnectHandlers: Array<() => void> = [];
-    private _onDisconnectHandlers: Array<() => void> = [];
+    private session: IPulseSession | null = null;
+    private activeTransport: IPulseClientTransport | null = null;
+    private sessionAbortController: AbortController | null = null;
+    private sessionPipelinePromise: Promise<void> | null = null;
+    private reconnectAttempts = 0;
+    private explicitlyDisconnected = false;
 
-    public generateCorrelationId(): string {
-        return `${this.messageSequenceNumber++}`;
+    constructor(options: PulseClientOptions) {
+        if (!options.transports || options.transports.length === 0) {
+            throw new Error('PulseClient requires at least one transport in options.transports.');
+        }
+        this.options = options;
     }
 
-    constructor(
-        private url: string,
-        options?: PulseClientOptions,
-    ) {
-        this._clientOptions = options || {};
-        (this as any)[WORKBENCH_LISTENERS] = [];
+    public get connected(): boolean {
+        return this.session !== null && this.session.isOpen;
     }
 
-    get connected(): boolean {
-        return this._connected && this._webSocketConnection !== null && this._webSocketConnection.readyState === WebSocket.OPEN;
+    public get activeTransportName(): string | null {
+        return this.activeTransport?.name ?? null;
     }
 
-    async connect(options?: PulseClientOptions): Promise<void> {
-        this._clientOptions = options || this._clientOptions;
-        this._webSocketConnection = createWebSocket(this.url, this._clientOptions.queryParameters);
-        this._webSocketConnection.binaryType = 'arraybuffer';
+    public async connect(): Promise<void> {
+        this.explicitlyDisconnected = false;
+        await this.connectInternal();
+    }
 
-        return new Promise((resolve, reject) => {
-            this._webSocketConnection!.onopen = () => {
-                this._connected = true;
-                this._reconnectAttempts = 0;
+    private async connectInternal(): Promise<void> {
+        const endpoint = this.normaliseEndpoint();
+        const queryParameters = this.flattenQueryParameters(this.options.queryParameters);
+        const failures: Array<{ transportName: string; error: unknown }> = [];
+
+        for (const transport of this.options.transports) {
+            const connectAbortController = new AbortController();
+            const connectTimeoutMs = this.options.connectTimeoutMs ?? 5000;
+            const timeoutHandle = setTimeout(() => connectAbortController.abort(), connectTimeoutMs);
+
+            try {
+                const newSession = await transport.connect(
+                    endpoint,
+                    this.options.authToken,
+                    queryParameters,
+                    connectAbortController.signal,
+                );
+                clearTimeout(timeoutHandle);
+
+                this.session = newSession;
+                this.activeTransport = transport;
+                this.sessionAbortController = new AbortController();
+                this.sessionPipelinePromise = this.runSessionLoop(newSession, this.sessionAbortController.signal);
+
+                this.reconnectAttempts = 0;
                 this.emitConnect();
-                resolve();
-            };
+                return;
+            } catch (transportError) {
+                clearTimeout(timeoutHandle);
+                failures.push({ transportName: transport.name, error: transportError });
+            }
+        }
 
-            this._webSocketConnection!.onclose = () => {
-                this._connected = false;
-                this.emitDisconnect();
-                if (this._clientOptions.autoReconnect) this.tryReconnect();
-            };
-
-            this._webSocketConnection!.onmessage = (event) => this.handleMessage(event.data);
-            this._webSocketConnection!.onerror = (error) => reject(error);
-        });
+        throw new PulseConnectError('All Pulse client transports failed to connect.', failures);
     }
 
-    public disconnect(code = 1000, reason = 'client disconnect'): void {
-        if (this._reconnectTimer) {
-            clearTimeout(this._reconnectTimer);
-            this._reconnectTimer = null;
+    public async disconnect(): Promise<void> {
+        this.explicitlyDisconnected = true;
+        this.sessionAbortController?.abort();
+
+        if (this.session !== null) {
+            try {
+                await this.session.close(1000, 0);
+            } catch {
+                // best-effort
+            }
+            try {
+                await this.session.dispose();
+            } catch {
+                // best-effort
+            }
         }
 
-        this._reconnectAttempts = 0;
-
-        if (this._webSocketConnection && this._webSocketConnection.readyState <= WebSocket.OPEN) {
-            this._webSocketConnection.close(code, reason);
+        if (this.sessionPipelinePromise !== null) {
+            try { await this.sessionPipelinePromise; }
+            catch { /* shutdown */ }
         }
 
-        this._webSocketConnection = null;
-        this._connected = false;
+        this.session = null;
+        this.activeTransport = null;
+        this.sessionAbortController = null;
+        this.sessionPipelinePromise = null;
         this.emitDisconnect();
-
-        for (const [, entry] of this._pendingRequests) {
-            entry.reject(new Error('Client disconnected'));
-        }
-
-        this._pendingRequests.clear();
     }
 
-    public onConnect(callback: () => void): void {
-        this._onConnectHandlers.push(callback);
+    public onConnect(handler: () => void): void {
+        this.onConnectHandlers.push(handler);
     }
 
-    public offConnect(callback: () => void): void {
-        const index = this._onConnectHandlers.indexOf(callback);
-        if (index !== -1) {
-            this._onConnectHandlers.splice(index, 1);
-        }
+    public offConnect(handler: () => void): void {
+        const index = this.onConnectHandlers.indexOf(handler);
+        if (index >= 0) this.onConnectHandlers.splice(index, 1);
     }
 
-    public onDisconnect(callback: () => void): void {
-        this._onDisconnectHandlers.push(callback);
+    public onDisconnect(handler: () => void): void {
+        this.onDisconnectHandlers.push(handler);
     }
 
-    public offDisconnect(callback: () => void): void {
-        const index = this._onDisconnectHandlers.indexOf(callback);
-        if (index !== -1) {
-            this._onDisconnectHandlers.splice(index, 1);
-        }
+    public offDisconnect(handler: () => void): void {
+        const index = this.onDisconnectHandlers.indexOf(handler);
+        if (index >= 0) this.onDisconnectHandlers.splice(index, 1);
     }
 
-    private emitConnect(): void {
-        for (const handler of this._onConnectHandlers) {
-            handler();
-        }
+    public on<TEvent>(handlePattern: string, handler: PulseClientEventHandler<TEvent>): void {
+        this.eventHandlerRegistry.register(handlePattern, handler);
     }
 
-    private emitDisconnect(): void {
-        for (const handler of this._onDisconnectHandlers) {
-            handler();
-        }
+    public off<TEvent>(handlePattern: string, handler: PulseClientEventHandler<TEvent>): void {
+        this.eventHandlerRegistry.unregister(handlePattern, handler as PulseClientEventHandler<unknown>);
     }
 
-    public on(handle: string, callback: EventListener): void {
-        const list = this._eventHandlers.get(handle) ?? [];
-        list.push(callback);
-        this._eventHandlers.set(handle, list);
-    }
-
-    public off(handle: string, callback: EventListener): void {
-        const list = this._eventHandlers.get(handle);
-        if (!list) return;
-        const index = list.indexOf(callback);
-        if (index !== -1) list.splice(index, 1);
-    }
-
-    public send<TPayload>(handle: string, payload: TPayload, version = 'v1', authorizationTokenOverride?: string): void {
-        const envelope = new PulseEnvelope<TPayload>();
-        envelope.handle = handle;
-        envelope.body = payload;
-        envelope.authToken = authorizationTokenOverride ?? this._clientOptions?.authToken ?? '';
-        envelope.kind = PulseKind.EVENT;
-        envelope.version = version;
-        this._webSocketConnection!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
-    }
-
-    public invoke<TRequest, TResponse>(
+    public async invoke<TRequest, TResponse>(
         handle: string,
         payload: TRequest,
         version = 'v1',
         authorizationTokenOverride?: string,
-    ): Promise<TResponse | void> {
-        const correlationId = this.generateCorrelationId();
-        const envelope = new PulseEnvelope<TRequest>();
-        envelope.handle = handle;
-        envelope.body = payload;
-        envelope.authToken = authorizationTokenOverride ?? this._clientOptions?.authToken ?? '';
-        envelope.kind = PulseKind.RPC;
-        envelope.version = version;
-        envelope.clientCorrelationId = correlationId;
+    ): Promise<TResponse> {
+        const session = this.requireSession();
 
-        return new Promise((resolve, reject) => {
-            this._pendingRequests.set(correlationId, { resolve, reject });
-            this._webSocketConnection!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
-            setTimeout(() => {
-                if (this._pendingRequests.has(correlationId)) {
-                    this._pendingRequests.delete(correlationId);
-                    reject(new Error('Request timed out'));
-                }
-            }, this._clientOptions?.requestTimeoutMs ?? 15000);
-        });
-    }
+        const requestEnvelope = new PulseEnvelope<TRequest>();
+        requestEnvelope.id = crypto.randomUUID();
+        requestEnvelope.handle = handle;
+        requestEnvelope.body = payload;
+        requestEnvelope.authToken = authorizationTokenOverride ?? this.options.authToken;
+        requestEnvelope.kind = PulseKind.RPC;
+        requestEnvelope.version = version;
 
-    private handleMessage(frameData: ArrayBuffer | string): void {
-        if (typeof frameData === 'string') return;
-
-        const rawBuffer = new Uint8Array(frameData);
-        let decodedEnvelope: PulseEnvelope<any>;
+        const requestBytes = pulseSerializer.packEnvelope(requestEnvelope);
+        const stream = await session.openStream(PulseStreamDirection.Bidirectional);
 
         try {
-            decodedEnvelope = pulseEnvelopeSerializer.unpackEnvelope(rawBuffer);
-        } catch {
-            return;
-        }
+            await stream.writeEnvelope(requestBytes);
+            await stream.completeWrites();
 
-        const workbenchListeners: Array<(envelope: PulseEnvelope<any>) => void> = (this as any)[WORKBENCH_LISTENERS] ?? [];
-        for (const callback of workbenchListeners) callback(decodedEnvelope);
+            const requestTimeoutMs = this.options.requestTimeoutMs ?? 15000;
+            const requestAbortController = new AbortController();
+            const timeoutHandle = setTimeout(() => requestAbortController.abort(), requestTimeoutMs);
 
-        const correlationId = decodedEnvelope.clientCorrelationId;
-        const pendingEntry = correlationId ? this._pendingRequests.get(correlationId) : undefined;
-
-        if (pendingEntry) {
-            pendingEntry.resolve(decodedEnvelope.body);
-            this._pendingRequests.delete(correlationId!);
-            return;
-        }
-
-        for (const [pattern, callbacks] of this._eventHandlers.entries()) {
-            const params = this.matchHandle(pattern, decodedEnvelope.handle);
-
-            if (params) {
-                for (const callback of callbacks) {
-                    callback(decodedEnvelope.body, { params });
+            try {
+                const responseBytes = await stream.readEnvelope(requestAbortController.signal);
+                if (responseBytes === null) {
+                    throw new Error(`RPC '${handle}' closed without sending a response.`);
                 }
+                const responseEnvelope = pulseSerializer.unpackEnvelope<TResponse>(responseBytes);
+
+                if (responseEnvelope.status !== undefined && responseEnvelope.status !== PulseStatus.OK) {
+                    throw new Error(responseEnvelope.error ?? `RPC '${handle}' failed with status ${responseEnvelope.status}.`);
+                }
+
+                return responseEnvelope.body;
+            } finally {
+                clearTimeout(timeoutHandle);
             }
+        } finally {
+            await stream.dispose();
         }
     }
 
-    private tryReconnect(): void {
-        if (this._clientOptions.maxReconnectAttempts && this._reconnectAttempts >= this._clientOptions.maxReconnectAttempts) {
+    public async *invokeStream<TRequest, TResponse>(
+        handle: string,
+        payload: TRequest,
+        version = 'v1',
+        authorizationTokenOverride?: string,
+    ): AsyncIterableIterator<TResponse> {
+        const session = this.requireSession();
+
+        const requestEnvelope = new PulseEnvelope<TRequest>();
+        requestEnvelope.id = crypto.randomUUID();
+        requestEnvelope.handle = handle;
+        requestEnvelope.body = payload;
+        requestEnvelope.authToken = authorizationTokenOverride ?? this.options.authToken;
+        requestEnvelope.kind = PulseKind.RPC_STREAM;
+        requestEnvelope.version = version;
+
+        const requestBytes = pulseSerializer.packEnvelope(requestEnvelope);
+        const stream = await session.openStream(PulseStreamDirection.Bidirectional);
+
+        try {
+            await stream.writeEnvelope(requestBytes);
+            await stream.completeWrites();
+
+            while (true) {
+                let envelopeBytes: Uint8Array | null;
+                try {
+                    envelopeBytes = await stream.readEnvelope();
+                } catch (error) {
+                    if (error instanceof PulseStreamResetError) return;
+                    throw error;
+                }
+                if (envelopeBytes === null) return;
+
+                const responseEnvelope = pulseSerializer.unpackEnvelope<TResponse>(envelopeBytes);
+                if (responseEnvelope.status !== undefined && responseEnvelope.status !== PulseStatus.OK) {
+                    throw new Error(responseEnvelope.error ?? `RPC stream '${handle}' failed with status ${responseEnvelope.status}.`);
+                }
+
+                yield responseEnvelope.body;
+            }
+        } finally {
+            await stream.dispose();
+        }
+    }
+
+    public async send<TPayload>(
+        handle: string,
+        payload: TPayload,
+        version = 'v1',
+        deliveryMode: DeliveryMode = 'reliable',
+        authorizationTokenOverride?: string,
+    ): Promise<void> {
+        const session = this.requireSession();
+
+        const envelope = new PulseEnvelope<TPayload>();
+        envelope.id = crypto.randomUUID();
+        envelope.handle = handle;
+        envelope.body = payload;
+        envelope.authToken = authorizationTokenOverride ?? this.options.authToken;
+        envelope.kind = deliveryMode === 'datagram' ? PulseKind.DATAGRAM_EVENT : PulseKind.EVENT;
+        envelope.version = version;
+
+        const envelopeBytes = pulseSerializer.packEnvelope(envelope);
+
+        if (deliveryMode === 'datagram') {
+            if (session.datagrams === null) {
+                throw new Error(`Transport '${session.transportName}' does not support datagrams.`);
+            }
+            await session.datagrams.sendDatagram(envelopeBytes);
             return;
         }
 
-        this._reconnectAttempts++;
-        const interval = this._clientOptions.reconnectIntervalMs || 2000;
-        this._reconnectTimer = setTimeout(() => {
-            this.connect().catch(() => {
-                this.tryReconnect();
-            });
-        }, interval);
+        const stream = await session.openStream(PulseStreamDirection.UnidirectionalClientToServer);
+        try {
+            await stream.writeEnvelope(envelopeBytes);
+            await stream.completeWrites();
+        } finally {
+            await stream.dispose();
+        }
     }
 
-    private matchHandle(pattern: string, handle: string): { [key: string]: string } | null {
-        const patternParts = pattern.split('/');
-        const handleParts = handle.split('/');
-
-        if (patternParts.length !== handleParts.length) {
-            return null;
+    private async runSessionLoop(session: IPulseSession, abortSignal: AbortSignal): Promise<void> {
+        try {
+            await PulseClientSessionPipeline.run(session, this.eventHandlerRegistry, abortSignal);
+        } catch {
+            // session ended — fall through to reconnect path
         }
 
-        const params: { [key: string]: string } = {};
+        if (this.explicitlyDisconnected) return;
+        if (this.options.autoReconnect === false) return;
 
-        for (let index = 0; index < patternParts.length; index++) {
-            const patternPart = patternParts[index];
-            const handlePart = handleParts[index];
+        void this.scheduleReconnect();
+    }
 
-            if (patternPart.startsWith('{') && patternPart.endsWith('}')) {
-                const paramName = patternPart.slice(1, -1);
-                params[paramName] = handlePart;
-            } else if (patternPart !== handlePart) {
-                return null;
+    private async scheduleReconnect(): Promise<void> {
+        const maxAttempts = this.options.maxReconnectAttempts;
+        if (maxAttempts !== undefined && this.reconnectAttempts >= maxAttempts) return;
+
+        const initialDelay = this.options.reconnectInitialDelayMs ?? 1000;
+        const maxDelay = this.options.reconnectMaxDelayMs ?? 30000;
+        const delay = Math.min(initialDelay * Math.pow(2, this.reconnectAttempts), maxDelay);
+        this.reconnectAttempts++;
+
+        this.emitDisconnect();
+        this.session = null;
+        this.activeTransport = null;
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (this.explicitlyDisconnected) return;
+
+        try {
+            await this.connectInternal();
+        } catch {
+            void this.scheduleReconnect();
+        }
+    }
+
+    private requireSession(): IPulseSession {
+        if (this.session === null || !this.session.isOpen) {
+            throw new Error('Pulse client is not connected. Call connect() first.');
+        }
+        return this.session;
+    }
+
+    private normaliseEndpoint(): URL {
+        if (this.options.endpoint instanceof URL) return this.options.endpoint;
+        return new URL(this.options.endpoint);
+    }
+
+    private flattenQueryParameters(
+        queryParameters: PulseQueryParameters | undefined,
+    ): Record<string, string> | undefined {
+        if (!queryParameters) return undefined;
+        const flattened: Record<string, string> = {};
+        for (const [key, value] of Object.entries(queryParameters)) {
+            if (Array.isArray(value)) {
+                flattened[key] = value.map(String).join(',');
+            } else {
+                flattened[key] = String(value);
             }
         }
+        return flattened;
+    }
 
-        return params;
+    private emitConnect(): void {
+        for (const handler of this.onConnectHandlers) {
+            try { handler(); } catch { /* isolate */ }
+        }
+    }
+
+    private emitDisconnect(): void {
+        for (const handler of this.onDisconnectHandlers) {
+            try { handler(); } catch { /* isolate */ }
+        }
     }
 }
-
-(PulseClient.prototype as any)[WORKBENCH_INTERNAL_INVOKE] = function <TRequest>(
-    this: PulseClient,
-    handle: string,
-    payload: TRequest,
-    version = 'v1',
-): PulseEnvelope<TRequest> {
-    const correlationId = (this as any).generateCorrelationId();
-    const requestEnvelope = new PulseEnvelope<TRequest>();
-    requestEnvelope.handle = handle;
-    requestEnvelope.body = payload;
-    requestEnvelope.authToken = (this as any)._clientOptions?.authToken ?? '';
-    requestEnvelope.kind = PulseKind.RPC;
-    requestEnvelope.version = version;
-    requestEnvelope.clientCorrelationId = correlationId;
-    (this as any)['_webSocketConnection']!.send(pulseEnvelopeSerializer.packEnvelope(requestEnvelope));
-    return requestEnvelope;
-};
-
-(PulseClient.prototype as any)[WORKBENCH_INTERNAL_SEND] = function <TPayload>(
-    this: PulseClient,
-    handle: string,
-    payload: TPayload,
-    version = 'v1',
-) {
-    const envelope = new PulseEnvelope<TPayload>();
-    envelope.handle = handle;
-    envelope.body = payload;
-    envelope.authToken = (this as any)['_clientOptions']?.authToken ?? '';
-    envelope.kind = PulseKind.EVENT;
-    envelope.version = version;
-    (this as any)['_webSocketConnection']!.send(pulseEnvelopeSerializer.packEnvelope(envelope));
-    return envelope;
-};
-
-(PulseClient.prototype as any)[WORKBENCH_INTERNAL_ON] = function (this: PulseClient, callback: (envelope: PulseEnvelope<any>) => void) {
-    const bucket: Array<(envelope: PulseEnvelope<any>) => void> = (this as any)[WORKBENCH_LISTENERS];
-    bucket.push(callback);
-};
