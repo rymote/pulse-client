@@ -21,7 +21,7 @@ jobs:
                   echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
             - name: Sync package.json version
-              run: npm version $VERSION --no-git-tag-version
+              run: npm version $VERSION --no-git-tag-version --allow-same-version
 
             - name: Setup Node for npmjs.org
               uses: actions/setup-node@v3
